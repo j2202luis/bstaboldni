@@ -1,130 +1,96 @@
 import streamlit as st
 import random
 import time
+import numpy as np
+import cv2
+import io
+from PIL import Image
 
-# Character class to define the player and enemies
-class Character:
-    def __init__(self, name, health, attack, defense, level=1):
-        self.name = name
-        self.health = health
-        self.attack = attack
-        self.defense = defense
-        self.level = level
-    
-    def is_alive(self):
-        return self.health > 0
+# Game logic variables
+paddle_width = 100
+ball_radius = 20
+game_width = 800
+game_height = 600
 
-    def take_damage(self, damage):
-        damage_taken = max(damage - self.defense, 0)
-        self.health -= damage_taken
-        return damage_taken
+# Create a game state container
+if 'score' not in st.session_state:
+    st.session_state.score = 0
+if 'ball_position' not in st.session_state:
+    st.session_state.ball_position = [random.randint(100, 700), 0]
+if 'paddle_position' not in st.session_state:
+    st.session_state.paddle_position = 350
 
-    def attack_enemy(self, enemy):
-        damage = random.randint(self.attack - 2, self.attack + 2)
-        damage_taken = enemy.take_damage(damage)
-        return damage, damage_taken
+# Function to generate the game screen image
+def generate_game_screen():
+    # Create a blank white canvas for the game
+    img = np.ones((game_height, game_width, 3), dtype=np.uint8) * 255
 
-    def heal(self):
-        heal_amount = random.randint(5, 10)
-        self.health = min(self.health + heal_amount, self.max_health)
-        return heal_amount
+    # Draw the paddle (a rectangle)
+    paddle_start = st.session_state.paddle_position
+    paddle_end = paddle_start + paddle_width
+    cv2.rectangle(img, (paddle_start, game_height - 50), (paddle_end, game_height - 30), (0, 0, 255), -1)
 
-# Player class (inherits from Character)
-class Player(Character):
-    def __init__(self, name):
-        super().__init__(name, health=50, attack=10, defense=3)
-        self.max_health = 50
-    
-    def level_up(self):
-        self.level += 1
-        self.attack += 3
-        self.defense += 2
-        self.max_health += 10
-        self.health = self.max_health
+    # Draw the falling ball (a circle)
+    ball_x, ball_y = st.session_state.ball_position
+    cv2.circle(img, (ball_x, ball_y), ball_radius, (0, 255, 0), -1)
 
-# Enemy class (inherits from Character)
-class Enemy(Character):
-    def __init__(self, name, level):
-        super().__init__(name, health=30 + (level * 5), attack=8 + level, defense=2 + level, level=level)
-        self.max_health = self.health
+    # Convert the image to an image that can be displayed in Streamlit
+    pil_img = Image.fromarray(img)
+    return pil_img
 
-# Game logic
-def battle(player, enemy):
-    battle_messages = []
-    while player.is_alive() and enemy.is_alive():
-        action = st.radio("Choose your action:", ['Attack', 'Heal'])
+# Function to move the ball
+def move_ball():
+    ball_x, ball_y = st.session_state.ball_position
+    ball_y += 5  # Move the ball down
+    if ball_y >= game_height - 50 and (ball_x > st.session_state.paddle_position and ball_x < st.session_state.paddle_position + paddle_width):
+        st.session_state.score += 1
+        st.session_state.ball_position = [random.randint(100, 700), 0]  # Reset ball position after catching it
+    elif ball_y >= game_height:
+        st.session_state.ball_position = [random.randint(100, 700), 0]  # Reset ball position if missed
 
-        if action == 'Attack':
-            damage_dealt, damage_taken = player.attack_enemy(enemy)
-            battle_messages.append(f"{player.name} attacks {enemy.name} for {damage_dealt} damage.")
-            battle_messages.append(f"{enemy.name} takes {damage_taken} damage. Health: {enemy.health}/{enemy.max_health}")
-        
-        elif action == 'Heal':
-            heal_amount = player.heal()
-            battle_messages.append(f"{player.name} heals for {heal_amount} health. Health: {player.health}/{player.max_health}")
-        
-        if enemy.is_alive():
-            damage_dealt, damage_taken = enemy.attack_enemy(player)
-            battle_messages.append(f"{enemy.name} attacks {player.name} for {damage_dealt} damage.")
-            battle_messages.append(f"{player.name} takes {damage_taken} damage. Health: {player.health}/{player.max_health}")
-        
-        if not enemy.is_alive():
-            battle_messages.append(f"{enemy.name} has been defeated!")
-            player.level_up()
-            battle_messages.append(f"{player.name} levels up! Now at level {player.level}.")
-            break
+    st.session_state.ball_position = [ball_x, ball_y]
 
-        if not player.is_alive():
-            battle_messages.append(f"{player.name} has been defeated!")
-            break
-
-    return battle_messages
+# Function to update the paddle position
+def move_paddle(direction):
+    if direction == 'left' and st.session_state.paddle_position > 0:
+        st.session_state.paddle_position -= 20
+    elif direction == 'right' and st.session_state.paddle_position < game_width - paddle_width:
+        st.session_state.paddle_position += 20
 
 # Main game loop
 def main():
-    st.title("RPG Game")
+    st.title("Catch the Falling Object!")
 
-    # Player setup
-    player_name = st.text_input("Enter your character's name:", "Hero")
-    if st.button("Start Game"):
-        player = Player(player_name)
-        st.session_state.player = player
-        st.session_state.messages = []
+    # Display the current score
+    st.text(f"Score: {st.session_state.score}")
 
-    # Game loop
-    if 'player' in st.session_state:
-        player = st.session_state.player
-        enemy_level = random.randint(1, player.level + 1)
-        enemy = Enemy("Goblin", enemy_level)
+    # Control the paddle with buttons
+    col1, col2, col3 = st.columns([1, 6, 1])
+    with col1:
+        move_left = st.button("Move Left")
+    with col3:
+        move_right = st.button("Move Right")
 
-        # Show messages
-        for message in st.session_state.messages:
-            st.text(message)
+    if move_left:
+        move_paddle('left')
+    if move_right:
+        move_paddle('right')
 
-        if player.is_alive() and enemy.is_alive():
-            battle_messages = battle(player, enemy)
-            st.session_state.messages.extend(battle_messages)
+    # Move the ball
+    move_ball()
 
-        if player.is_alive():
-            st.text(f"{player.name}'s Health: {player.health}/{player.max_health}")
-            st.text(f"{enemy.name}'s Health: {enemy.health}/{enemy.max_health}")
+    # Update the game screen
+    game_screen = generate_game_screen()
+    st.image(game_screen, use_column_width=True)
 
-        if player.is_alive() and not enemy.is_alive():
-            st.text(f"{enemy.name} has been defeated!")
-            st.text(f"{player.name}'s Health: {player.health}/{player.max_health}")
+    # Pause for a moment before updating the game state
+    time.sleep(0.05)
 
-            if st.button("Continue Adventuring"):
-                enemy_level = random.randint(1, player.level + 1)
-                enemy = Enemy("Goblin", enemy_level)
-                battle_messages = battle(player, enemy)
-                st.session_state.messages.extend(battle_messages)
-
-        elif not player.is_alive():
-            st.text(f"{player.name} has been defeated! Game Over!")
-            if st.button("Restart Game"):
-                del st.session_state.player
-                del st.session_state.messages
-                st.experimental_rerun()
+    # Restart game button
+    if st.button("Restart Game"):
+        st.session_state.score = 0
+        st.session_state.ball_position = [random.randint(100, 700), 0]
+        st.session_state.paddle_position = 350
 
 if __name__ == "__main__":
     main()
