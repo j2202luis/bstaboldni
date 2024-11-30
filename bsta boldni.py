@@ -1,5 +1,5 @@
+import streamlit as st
 import random
-import curses
 import time
 
 # Character class to define the player and enemies
@@ -14,26 +14,20 @@ class Character:
     def is_alive(self):
         return self.health > 0
 
-    def take_damage(self, damage, stdscr):
+    def take_damage(self, damage):
         damage_taken = max(damage - self.defense, 0)
         self.health -= damage_taken
-        stdscr.addstr(f"{self.name} takes {damage_taken} damage. Health: {self.health}/{self.max_health}\n")
-        stdscr.refresh()
-        time.sleep(1)
+        return damage_taken
 
-    def attack_enemy(self, enemy, stdscr):
+    def attack_enemy(self, enemy):
         damage = random.randint(self.attack - 2, self.attack + 2)
-        stdscr.addstr(f"{self.name} attacks {enemy.name} for {damage} damage.\n")
-        stdscr.refresh()
-        time.sleep(1)
-        enemy.take_damage(damage, stdscr)
-        
-    def heal(self, stdscr):
+        damage_taken = enemy.take_damage(damage)
+        return damage, damage_taken
+
+    def heal(self):
         heal_amount = random.randint(5, 10)
         self.health = min(self.health + heal_amount, self.max_health)
-        stdscr.addstr(f"{self.name} heals for {heal_amount} points. Health: {self.health}/{self.max_health}\n")
-        stdscr.refresh()
-        time.sleep(1)
+        return heal_amount
 
 # Player class (inherits from Character)
 class Player(Character):
@@ -41,15 +35,12 @@ class Player(Character):
         super().__init__(name, health=50, attack=10, defense=3)
         self.max_health = 50
     
-    def level_up(self, stdscr):
+    def level_up(self):
         self.level += 1
         self.attack += 3
         self.defense += 2
         self.max_health += 10
         self.health = self.max_health
-        stdscr.addstr(f"{self.name} has leveled up! Now at level {self.level}.\n")
-        stdscr.refresh()
-        time.sleep(1)
 
 # Enemy class (inherits from Character)
 class Enemy(Character):
@@ -57,94 +48,83 @@ class Enemy(Character):
         super().__init__(name, health=30 + (level * 5), attack=8 + level, defense=2 + level, level=level)
         self.max_health = self.health
 
-    def take_damage(self, damage, stdscr):
-        super().take_damage(damage, stdscr)
-        if not self.is_alive():
-            stdscr.addstr(f"{self.name} has been defeated!\n")
-            stdscr.refresh()
-            time.sleep(1)
-
 # Game logic
-def battle(player, enemy, stdscr):
-    stdscr.addstr(f"A wild {enemy.name} appears!\n")
-    stdscr.refresh()
-    time.sleep(1)
-    
+def battle(player, enemy):
+    battle_messages = []
     while player.is_alive() and enemy.is_alive():
-        stdscr.clear()
-        stdscr.addstr(f"{player.name}'s Health: {player.health}/{player.max_health}\n")
-        stdscr.addstr(f"{enemy.name}'s Health: {enemy.health}/{enemy.max_health}\n")
-        stdscr.addstr("\nChoose your action:\n")
-        stdscr.addstr("1: Attack\n")
-        stdscr.addstr("2: Heal\n")
-        stdscr.refresh()
-        choice = stdscr.getch()
+        action = st.radio("Choose your action:", ['Attack', 'Heal'])
 
-        if choice == ord('1'):
-            player.attack_enemy(enemy, stdscr)
-        elif choice == ord('2'):
-            player.heal(stdscr)
-        else:
-            stdscr.addstr("Invalid choice, try again.\n")
-            stdscr.refresh()
-            time.sleep(1)
-            continue
-
+        if action == 'Attack':
+            damage_dealt, damage_taken = player.attack_enemy(enemy)
+            battle_messages.append(f"{player.name} attacks {enemy.name} for {damage_dealt} damage.")
+            battle_messages.append(f"{enemy.name} takes {damage_taken} damage. Health: {enemy.health}/{enemy.max_health}")
+        
+        elif action == 'Heal':
+            heal_amount = player.heal()
+            battle_messages.append(f"{player.name} heals for {heal_amount} health. Health: {player.health}/{player.max_health}")
+        
         if enemy.is_alive():
-            enemy.attack_enemy(player, stdscr)
-        else:
+            damage_dealt, damage_taken = enemy.attack_enemy(player)
+            battle_messages.append(f"{enemy.name} attacks {player.name} for {damage_dealt} damage.")
+            battle_messages.append(f"{player.name} takes {damage_taken} damage. Health: {player.health}/{player.max_health}")
+        
+        if not enemy.is_alive():
+            battle_messages.append(f"{enemy.name} has been defeated!")
+            player.level_up()
+            battle_messages.append(f"{player.name} levels up! Now at level {player.level}.")
             break
 
-        if player.is_alive():
-            stdscr.addstr(f"{player.name}'s Health: {player.health}/{player.max_health}\n")
-        else:
-            stdscr.addstr(f"{player.name} has been defeated!\n")
+        if not player.is_alive():
+            battle_messages.append(f"{player.name} has been defeated!")
             break
+
+    return battle_messages
 
 # Main game loop
-def main(stdscr):
-    curses.curs_set(0)  # Hide cursor
-    stdscr.nodelay(1)   # Non-blocking input
-    stdscr.clear()
+def main():
+    st.title("RPG Game")
 
-    stdscr.addstr("Welcome to the RPG Game!\n")
-    stdscr.refresh()
-    time.sleep(1)
+    # Player setup
+    player_name = st.text_input("Enter your character's name:", "Hero")
+    if st.button("Start Game"):
+        player = Player(player_name)
+        st.session_state.player = player
+        st.session_state.messages = []
 
-    # Create player
-    stdscr.addstr("Enter your character's name: ")
-    stdscr.refresh()
-    player_name = ""
-    while True:
-        char = stdscr.getch()
-        if char == 10:  # Enter key
-            break
-        player_name += chr(char)
-        stdscr.addstr(chr(char))
-        stdscr.refresh()
-
-    player = Player(player_name)
-    
     # Game loop
-    while player.is_alive():
+    if 'player' in st.session_state:
+        player = st.session_state.player
         enemy_level = random.randint(1, player.level + 1)
         enemy = Enemy("Goblin", enemy_level)
-        battle(player, enemy, stdscr)
-        
-        if player.is_alive():
-            player.level_up(stdscr)
-            stdscr.addstr("Do you want to continue adventuring? (y/n): ")
-            stdscr.refresh()
-            choice = stdscr.getch()
-            if choice == ord('n'):
-                break
-        else:
-            stdscr.addstr("Game over!\n")
-            break
 
-    stdscr.addstr("Thank you for playing!\n")
-    stdscr.refresh()
-    time.sleep(2)
+        # Show messages
+        for message in st.session_state.messages:
+            st.text(message)
+
+        if player.is_alive() and enemy.is_alive():
+            battle_messages = battle(player, enemy)
+            st.session_state.messages.extend(battle_messages)
+
+        if player.is_alive():
+            st.text(f"{player.name}'s Health: {player.health}/{player.max_health}")
+            st.text(f"{enemy.name}'s Health: {enemy.health}/{enemy.max_health}")
+
+        if player.is_alive() and not enemy.is_alive():
+            st.text(f"{enemy.name} has been defeated!")
+            st.text(f"{player.name}'s Health: {player.health}/{player.max_health}")
+
+            if st.button("Continue Adventuring"):
+                enemy_level = random.randint(1, player.level + 1)
+                enemy = Enemy("Goblin", enemy_level)
+                battle_messages = battle(player, enemy)
+                st.session_state.messages.extend(battle_messages)
+
+        elif not player.is_alive():
+            st.text(f"{player.name} has been defeated! Game Over!")
+            if st.button("Restart Game"):
+                del st.session_state.player
+                del st.session_state.messages
+                st.experimental_rerun()
 
 if __name__ == "__main__":
-    curses.wrapper(main)
+    main()
